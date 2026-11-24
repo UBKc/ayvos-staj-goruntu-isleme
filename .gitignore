@@ -1,0 +1,19 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# videolar, model agirliklari ve ciktilar repoya eklenmiyor
+*.mp4
+*.avi
+*.pt
+*.onnx
+videos/
+models/
+outputs/
+weights/
+
+# calisirken olusan loglar
+*.csv
+*.json
