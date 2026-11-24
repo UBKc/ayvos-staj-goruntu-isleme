@@ -12,7 +12,7 @@ VIDEOS_DIR = SCRIPT_DIR / "videos" if (SCRIPT_DIR / "videos").exists() else SCRI
 MODELS_DIR = SCRIPT_DIR / "models" if (SCRIPT_DIR / "models").exists() else SCRIPT_DIR.parent / "models"
 OUTPUTS_DIR = SCRIPT_DIR / "outputs" if (SCRIPT_DIR / "outputs").exists() else SCRIPT_DIR.parent / "outputs"
 
-# İşlemci çekirdeklerini sonuna kadar kullanma 
+# butun cekirdekleri kullansin
 MAX_THREADS = cv2.getNumberOfCPUs()
 cv2.setNumThreads(MAX_THREADS)
 torch.set_num_threads(MAX_THREADS)
@@ -20,7 +20,6 @@ torch.set_num_threads(MAX_THREADS)
 sys.path.insert(0, str(SCRIPT_DIR.parent / "ortak"))
 from yuz_bulaniklastirma import YuzBulaniklastirici
 
-# GPU varsa ilk ekran kartı, yoksa işlemci kullanılır
 DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 TABLE_LABEL = "dining table"
@@ -36,9 +35,9 @@ YOLO_IOU_THRESHOLD = 0.50
 INFERENCE_IMGSZ = 1280
 
 TABLE_SHRINK_RATIO = 0.12
-MATCH_DIST_MULTIPLIER = 0.9   
+MATCH_DIST_MULTIPLIER = 0.9
 
-GRACE_PERIOD_SECONDS = 6.0     
+GRACE_PERIOD_SECONDS = 6.0
 DIRTY_CONFIRM_SECONDS = 3.0
 
 MASA_KESIF_ONAY_SANIYE = 1.5
@@ -114,12 +113,12 @@ class MasaKesifYoneticisi:
     def __init__(self, onay_frame: int, iou_esik: float = MASA_KESIF_IOU_ESIK):
         self.onay_frame = onay_frame
         self.iou_esik = iou_esik
-        self.adaylar = [] 
+        self.adaylar = []
 
     def guncelle(self, bu_kare_masalar: list, sabit_masalar: list) -> None:
         for kutu in bu_kare_masalar:
             if any(kutu_iou(kutu, sm) > self.iou_esik for sm in sabit_masalar):
-                continue 
+                continue
 
             eslesen = None
             for aday in self.adaylar:
@@ -187,8 +186,8 @@ def kareyi_isle_temizlik(frame: np.ndarray, tables: list, persons: list, esyalar
     for (kx1, ky1, kx2, ky2), track_id in persons:
         if track_id != -1:
             aktif_track_idler.add(track_id)
-        
-        # Sadece insan kutusu çiziliyor, ekranda ID gösterilmiyor
+
+        # ekranda id gosterilmiyor
         cv2.rectangle(frame, (kx1, ky1), (kx2, ky2), (255, 178, 50), line_thick)
 
         kisi_ref_cx = (kx1 + kx2) / 2
@@ -244,7 +243,6 @@ def kareyi_isle_temizlik(frame: np.ndarray, tables: list, persons: list, esyalar
         durum_metni = "TEMIZ / BOS"
 
         if durum["dolu"]:
-            # Müşteri olan masada obje sayısı ve ID detayları kaldırıldı
             durum_metni = "MUSTERI VAR"
             renk = COLOR_BOS
         elif esya_sayisi > 0 and durum["kirli_confirm_frame"] >= dirty_confirm_frames:
@@ -258,11 +256,11 @@ def kareyi_isle_temizlik(frame: np.ndarray, tables: list, persons: list, esyalar
 def main() -> None:
     print(f"Sistemdeki Çekirdek Sayısı ({MAX_THREADS}) optimizasyon için tahsis edildi.")
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Model models klasöründe yoksa Ultralytics ilk çalıştırmada indirir
+
+    # models klasorunde yoksa ultralytics indiriyor
     model_yolu = MODELS_DIR / "yolov8x.pt"
     model = YOLO(str(model_yolu) if model_yolu.exists() else "yolov8x.pt")
-    # Yüz bulanıklaştırma: YOLO yüz modeli varsa models klasöründen, yoksa Haar cascade ile
+    # yuz modeli models klasorunde varsa o, yoksa haar cascade
     yuz_model_yolu = MODELS_DIR / "face.pt"
     yuz_bulaniklastirici = YuzBulaniklastirici(
         model_yolu=str(yuz_model_yolu) if yuz_model_yolu.exists() else None,
@@ -276,13 +274,13 @@ def main() -> None:
 
     for video_name in videolar:
         video_path = VIDEOS_DIR / video_name
-        
+
         if not video_path.exists():
             print(f"\n[!] Video bulunamadı atlanıyor: {video_path}")
             continue
 
         print(f"\n--- {video_name} İşlenmeye Başladı ---")
-        
+
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             print(f"[!] Video açılamadı: {video_path}")
@@ -296,7 +294,7 @@ def main() -> None:
 
         masa_durumlari = [{"dolu": False, "kayip_frame": 0, "kirli_confirm_frame": 0} for _ in sabit_masalar]
         masa_kesif = MasaKesifYoneticisi(onay_frame=max(1, int(MASA_KESIF_ONAY_SANIYE * fps)))
-        
+
         kisi_masa_takip = {}
 
         output_path = OUTPUTS_DIR / f"islenmis_{video_path.stem}.mp4"
@@ -304,31 +302,25 @@ def main() -> None:
         frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, frame_size)
 
-        # --- EKRAN GÖSTERİMİ AÇIK ---
         window_name = f"Temizlik Analizi - {video_name}"
         w, h = frame_size
         olcek = min(MAX_DISPLAY_WIDTH / w, MAX_DISPLAY_HEIGHT / h, 1.0)
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, int(w * olcek), int(h * olcek))
-        
-        #def on_trackbar(val):
-        #    cap.set(cv2.CAP_PROP_POS_FRAMES, val)
-            
-        #cv2.createTrackbar("Zaman", window_name, 0, toplam_kare, on_trackbar)
-        # ----------------------------------------
+
+
 
         kare_sayaci = 0
         while cap.isOpened():
             ok, frame = cap.read()
             if not ok:
                 break
-            
+
             kare_sayaci += 1
 
             if kare_sayaci % 50 == 0:
                 print(f"İşlenen Kare: {kare_sayaci} / {toplam_kare}", flush=True)
 
-            # Önce insanları tespit et
             results = model.track(
                 frame, conf=0.05, imgsz=INFERENCE_IMGSZ,
                 classes=[0, 39, 40, 41, 60], persist=True, tracker="bytetrack.yaml", verbose=False, device=DEVICE
@@ -336,7 +328,7 @@ def main() -> None:
 
             persons, esyalar, masa_adaylari = [], [], []
             names = results.names
-            
+
             ids = results.boxes.id.cpu().numpy() if results.boxes.id is not None else None
 
             for i, box in enumerate(results.boxes):
@@ -346,13 +338,12 @@ def main() -> None:
 
                 if label == PERSON_LABEL and conf > PERSON_CONF_THRESHOLD:
                     track_id = int(ids[i]) if ids is not None else -1
-                    persons.append((xyxy, track_id)) 
+                    persons.append((xyxy, track_id))
                 elif label in [BOTTLE_LABEL, CUP_LABEL, WINEGLASS_LABEL] and conf > ESYA_CONF_THRESHOLD:
                     esyalar.append(xyxy)
                 elif label == TABLE_LABEL and conf >= TABLE_CONF_THRESHOLD:
                     masa_adaylari.append(xyxy)
 
-            # İnsan listesini bulanıklaştırmaya gönder
             frame = yuz_bulaniklastirici.bulaniklastir(frame, [kutu for kutu, _ in persons])
 
             masa_kesif.guncelle(masa_adaylari, sabit_masalar)
@@ -363,19 +354,15 @@ def main() -> None:
 
             writer.write(frame)
 
-            # --- EKRAN GÖSTERİMİ AÇIK ---
             cv2.imshow(window_name, olcekle(frame, MAX_DISPLAY_WIDTH, MAX_DISPLAY_HEIGHT))
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
-            # ----------------------------------------
 
         cap.release()
         writer.release()
-        
-        # --- EKRAN GÖSTERİMİ AÇIK ---
+
         cv2.destroyWindow(window_name)
-        # ----------------------------------------
-        
+
         print(f"[✓] {video_name} tamamlandı, çıktı kaydedildi: {output_path}")
 
     cv2.destroyAllWindows()

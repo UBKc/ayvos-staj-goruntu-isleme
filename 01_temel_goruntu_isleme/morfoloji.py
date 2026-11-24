@@ -2,43 +2,35 @@ import sys
 import cv2
 import numpy as np
 
-# Resim yolu komut satırından verilebilir: python dosya.py resim.jpg
 RESIM_YOLU = sys.argv[1] if len(sys.argv) > 1 else "test.jpg"
 
-# Görüntüyü gri tonlamalı okuyoruz
 resim_gri = cv2.imread(RESIM_YOLU, cv2.IMREAD_GRAYSCALE)
 
-# Resmi gri tonlamalı okuyup %50 oranında küçültüyoruz
 resim_gri = cv2.resize(resim_gri, (0, 0), fx=0.5, fy=0.5)
 
-# Küçülmüş resim üzerinden eşikleme yapıyoruz
 ret, esiklenmis_resim = cv2.threshold(resim_gri, 127, 255, cv2.THRESH_BINARY)
 
-# Morfolojik işlemler için 5x5 boyutunda 1'lerden oluşan kernel matrisi
 kernel = np.ones((5,5), np.uint8)
 
-# 1 - Erode (Aşındırma): işlemi ile beyaz alanları inceltme
+# erode: beyaz alanlar inceliyor
 asindirilmis_resim = cv2.erode(esiklenmis_resim, kernel, iterations=1)
 
-# 2 - Dilate (Genişletme): işlemi ile beyaz alanları kalınlaştırma
+# dilate: beyaz alanlar kalinlasiyor
 genisletilmis_resim = cv2.dilate(esiklenmis_resim, kernel, iterations=1)
 
-# 3 - Opening (Açma): Önce aşındır, sonra genişlet (Dışarıdaki gürültüleri siler)
+# opening: once erode sonra dilate, disaridaki gurultu gidiyor
 acma_resim = cv2.morphologyEx(esiklenmis_resim, cv2.MORPH_OPEN, kernel)
 
-# 4 - Closing (Kapatma): Önce genişlet, sonra aşındır (İçerideki siyah delikleri kapatır)
+# closing: once dilate sonra erode, icerideki delikler kapaniyor
 kapatma_resim = cv2.morphologyEx(esiklenmis_resim, cv2.MORPH_CLOSE, kernel)
 
-# 5 - Gradient (Gradyan): Genişletilmiş hali ile aşındırılmış hali arasındaki fark (Kenar çıkarır)
+# gradient: dilate - erode, kenarlari veriyor
 gradyan_resim = cv2.morphologyEx(esiklenmis_resim, cv2.MORPH_GRADIENT, kernel)
 
-# 6 - Top Hat (Üst Şapka): Orijinal resim ile Açma işlemi arasındaki fark
 ust_sapka_resim = cv2.morphologyEx(esiklenmis_resim, cv2.MORPH_TOPHAT, kernel)
 
-# 7 - Black Hat (Kara Şapka): Kapatma işlemi ile orijinal resim arasındaki fark
 kara_sapka_resim = cv2.morphologyEx(esiklenmis_resim, cv2.MORPH_BLACKHAT, kernel)
 
-# Sonuçları ekranda gösterme
 cv2.imshow("1 - Threshold (Esikleme)", esiklenmis_resim)
 cv2.imshow("2 - Erode (Asindirma)", asindirilmis_resim)
 cv2.imshow("3 - Dilate (Genisletme)", genisletilmis_resim)
@@ -48,6 +40,5 @@ cv2.imshow("6 - Morphological Gradient (Gradyan)", gradyan_resim)
 cv2.imshow("7 - Top Hat (Ust Sapka)", ust_sapka_resim)
 cv2.imshow("8 - Black Hat (Kara Sapka)", kara_sapka_resim)
 
-# Pencerelerin kapanmaması için bekleme komutları
 cv2.waitKey(0)
 cv2.destroyAllWindows()

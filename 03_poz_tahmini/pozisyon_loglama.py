@@ -8,100 +8,81 @@ from datetime import datetime
 from collections import deque
 from ultralytics import YOLO
 
-# Video yolu komut satırından verilebilir: python dosya.py video.mp4
 VIDEO_YOLU = sys.argv[1] if len(sys.argv) > 1 else "durus_gecisleri.mp4"
 
-# Üç eklem noktası arasındaki iç açının hesaplanması
+# p2'deki aci (kalca-diz-bilek icin diz acisi)
 def calculate_angle(p1, p2, p3):
     x1, y1 = p1; x2, y2 = p2; x3, y3 = p3
     angle = math.degrees(math.atan2(y3-y2, x3-x2) - math.atan2(y1-y2, x1-x2))
     angle = abs(angle)
     return 360.0 - angle if angle > 180.0 else angle
 
-# İki nokta arasındaki Öklid mesafesinin hesaplanması
 def calculate_distance(p1, p2):
     return math.hypot(p2[0]-p1[0], p2[1]-p1[1])
 
-# YOLOv8 pose modelinin başlatılması
 model = YOLO("yolov8n-pose.pt")
 
-# Dosyanın bulunduğu klasör yolundan video akışının alınması
 cap = cv2.VideoCapture(VIDEO_YOLU)
 
-# Video FPS değerinin alınması ve kare gecikme süresinin hesaplanması
 video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
 delay = max(1, int(1000/video_fps) - 25)
 
-# Hareket penceresi boyutu ve durum geçiş eşik değerlerinin tanımlanması
-HIST_LEN = 10       
-MOVE_THRESH = 0.10  
-RUN_THRESH = 0.25   
+HIST_LEN = 10
+MOVE_THRESH = 0.10
+RUN_THRESH = 0.25
 
-# Kalça merkezi geçmişini ve durum geçmişini tutmak için kuyruk yapılarının tanımlanması
-center_hist = deque(maxlen=HIST_LEN)   
-state_hist = deque(maxlen=10)           
+center_hist = deque(maxlen=HIST_LEN)
+state_hist = deque(maxlen=10)
 
-# Pozisyon süre takibi ve loglama değişkenlerinin tanımlanması
 current_state = None
 state_start_time = time.time()
 log_records = []
 
-# CSV ve JSON log dosya yollarının belirlenmesi
 log_file_csv = "pozisyon_loglari.csv"
 log_file_json = "pozisyon_loglari.json"
 
-# CSV log dosyasının oluşturulması ve başlık satırının yazılması
 with open(log_file_csv, mode="w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     writer.writerow(["Tarih_Saat", "Pozisyon", "Sure_Saniye"])
 
-# Video akışının işlenmesi için ana döngünün başlatılması
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         print("Görüntü akışı kesildi.")
         break
 
-    # YOLOv8 pose modeli ile kare üzerindeki iskelet noktalarının tahmin edilmesi
     results = model(frame, verbose=False)
 
-    # Kare içerisinde tespit edilen iskelet noktalarının kontrolü
     if results[0].keypoints is not None and results[0].keypoints.xy.nelement() > 0:
-        
-        # Sınır kutusu ve eklem koordinatlarının (keypoints) alınması
+
         keypoints_array = results[0].keypoints.xy.cpu().numpy()
         keypoints = keypoints_array[0]
 
-        # COCO formatındaki 17 temel eklem noktasının kontrolü
         if len(keypoints) >= 17:
-            
-            # Sol ve sağ bacak eklem koordinatlarının atanması
+
             l_hip, l_knee, l_ankle = keypoints[11], keypoints[13], keypoints[15]
             r_hip, r_knee, r_ankle = keypoints[12], keypoints[14], keypoints[16]
 
-            # Bacak eklem koordinatlarının geçerli veriye sahip olmasının kontrolü
             if all(l_hip) and all(l_knee) and all(l_ankle) and all(r_hip) and all(r_knee) and all(r_ankle):
-                
-                # Sol ve sağ diz açılarının hesaplanması ve minimum açının alınması
+
                 l_angle = calculate_angle(l_hip, l_knee, l_ankle)
                 r_angle = calculate_angle(r_hip, r_knee, r_ankle)
                 min_angle = min(l_angle, r_angle)
-                
-                # Yan profillerde kalça mesafesinin sıfıra yaklaşmasını önleyen alt sınırın uygulanması
+
+                # yandan bakan kiside kalca genisligi sifira yaklasiyor, alt sinir 50
                 hip_width = max(calculate_distance(l_hip, r_hip), 50.0)
 
-                # Kalça merkez noktasının hesaplanması ve geçmiş kuyruğuna eklenmesi
                 center = ((l_hip[0]+r_hip[0])/2, (l_hip[1]+r_hip[1])/2)
                 center_hist.append(center)
 
-                # Geçmiş karelerdeki merkez yer değişiminin hesaplanması ve normalize edilmesi
+                # son karelerdeki ortalama yer degistirme, kalca genisligine bolunuyor
                 movement = 0.0
                 if len(center_hist) >= 2:
                     total = sum(calculate_distance(center_hist[i], center_hist[i+1])
                                 for i in range(len(center_hist)-1))
                     movement = (total / (len(center_hist)-1)) / hip_width
 
-                # Hareket ve açı eşik değerlerine göre kişinin anlık durumunun belirlenmesi
+                # diz acisi 130'un altindaysa oturuyor
                 if len(center_hist) < HIST_LEN:
                     raw_state = "Bilinmiyor"
                 elif movement > RUN_THRESH:
@@ -113,11 +94,11 @@ while cap.isOpened():
                 else:
                     raw_state = "Ayakta"
 
-                # Anlık titremeleri önlemek için durum geçmişine eklenmesi ve çoğunluk oyunun alınması
+                # tek karelik titremeler olmasin diye son karelerin cogunluk oyu
                 state_hist.append(raw_state)
                 state = max(set(state_hist), key=state_hist.count)
-                
-                # Pozisyon değişiminin tespit edilmesi, geçen sürenin hesaplanması ve log verilerinin güncellenmesi
+
+                # durum degisince onceki durumun suresi loga yaziliyor
                 now = time.time()
                 if current_state is None:
                     current_state = state
@@ -126,12 +107,10 @@ while cap.isOpened():
                     duration = round(now - state_start_time, 2)
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Tamamlanan pozisyon süresinin CSV dosyasına yazılması
                     with open(log_file_csv, mode="a", newline="", encoding="utf-8") as f:
                         writer = csv.writer(f)
                         writer.writerow([timestamp, current_state, duration])
 
-                    # Tamamlanan pozisyon süresinin JSON kaydına eklenmesi
                     log_records.append({
                         "tarih_saat": timestamp,
                         "pozisyon": current_state,
@@ -141,35 +120,30 @@ while cap.isOpened():
                     current_state = state
                     state_start_time = now
 
-                # Durumlara karşılık gelen renk haritasının tanımlanması
                 color_map = {
-                    "Oturuyor": (0, 0, 255), 
+                    "Oturuyor": (0, 0, 255),
                     "Yuruyor": (255, 165, 0),
                     "Kosuyor": (255, 0, 255),
-                    "Ayakta": (0, 255, 0), 
+                    "Ayakta": (0, 255, 0),
                     "Bilinmiyor": (255, 255, 255)
                 }
                 color = color_map.get(state, (255, 255, 255))
 
-                # Tespit edilen durum bilgisinin, açının ve hareket değerinin kare üzerine yazdırılması
                 x, y = int(l_hip[0]), int(l_hip[1] - 50)
                 cv2.putText(frame, f"{state} (Aci:{int(min_angle)}, Hareket:{movement:.2f})",
                             (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-    # İskelet çizimlerinin yapılması ve pencere boyutunun ölçeklendirilmesi
     annotated_frame = results[0].plot()
     disp_w = int(annotated_frame.shape[1] * 1.20)
     disp_h = int(annotated_frame.shape[0] * 1.20)
     annotated_frame = cv2.resize(annotated_frame, (disp_w, disp_h))
-    
-    # İşlenmiş görüntünün ekrana yansıtılması
+
     cv2.imshow("YOLOv8 Pose - Durus Tespiti", annotated_frame)
 
-    # 'q' tuşu ile çıkış kontrolü
     if cv2.waitKey(delay) & 0xFF == ord('q'):
         break
 
-# Video sonlandığında aktif kalan son pozisyon süresinin loglara eklenmesi
+# video bitince son durumun suresi de yaziliyor
 if current_state is not None:
     final_duration = round(time.time() - state_start_time, 2)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -184,10 +158,8 @@ if current_state is not None:
         "sure_saniye": final_duration
     })
 
-# Tüm davranış geçmişinin JSON dosyasına aktarılması
 with open(log_file_json, "w", encoding="utf-8") as f:
     json.dump(log_records, f, ensure_ascii=False, indent=4)
 
-# Kaynakların serbest bırakılması
 cap.release()
 cv2.destroyAllWindows()
